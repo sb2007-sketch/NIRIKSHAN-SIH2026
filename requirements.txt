@@ -1,6 +1,0 @@
-streamlit
-pillow
-pandas
-fpdf2
-pytesseract
-opencv-python-headless
