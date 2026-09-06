@@ -4,7 +4,10 @@ import random
 import re
 from datetime import datetime
 
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -418,14 +421,24 @@ else:
             if pytesseract and not st.session_state.ocr_buffer:
                 with st.spinner("Processing OCR extraction..."):
                     try:
-                        cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                        h, w = cv_img.shape[:2]
-                        roi = cv_img[int(h * 0.35):h, 0:w] if h > w else cv_img
-                        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                        enhanced = cv2.equalizeHist(gray)
-                        t1 = pytesseract.image_to_string(gray, config="--psm 6")
-                        t2 = pytesseract.image_to_string(enhanced, config="--psm 11")
-                        st.session_state.ocr_buffer = f"{t1}\n{t2}".strip()
+                        if cv2 is not None:
+                            cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                            h, w = cv_img.shape[:2]
+                            roi = cv_img[int(h * 0.35):h, 0:w] if h > w else cv_img
+                            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                            enhanced = cv2.equalizeHist(gray)
+                            t1 = pytesseract.image_to_string(gray, config="--psm 6")
+                            t2 = pytesseract.image_to_string(enhanced, config="--psm 11")
+                            st.session_state.ocr_buffer = f"{t1}\n{t2}".strip()
+                        else:
+                            w, h = pil_img.size
+                            crop_box = (0, int(h * 0.35), w, h) if h > w else (0, 0, w, h)
+                            cropped = pil_img.crop(crop_box)
+                            gray = ImageOps.grayscale(cropped)
+                            enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
+                            t1 = pytesseract.image_to_string(gray, config="--psm 6")
+                            t2 = pytesseract.image_to_string(enhanced, config="--psm 11")
+                            st.session_state.ocr_buffer = f"{t1}\n{t2}".strip()
                     except Exception as e:
                         st.session_state.ocr_buffer = ""
 
