@@ -1,0 +1,1345 @@
+import streamlit as st
+from PIL import Image
+import re
+from datetime import datetime
+import pandas as pd
+import io
+import random
+
+
+# ============================================================
+# NIRIKSHAN
+# Smart Packaged Commodity Compliance Screening System
+# SIH 2026 - Problem ID: SIH26034
+# ============================================================
+
+
+# ---------------- PAGE CONFIG ----------------
+
+st.set_page_config(
+    page_title="NIRIKSHAN | Legal Metrology Compliance",
+    page_icon="🔎",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+# ---------------- CUSTOM CSS ----------------
+
+st.markdown("""
+<style>
+
+.main {
+    background-color: #f6f8fb;
+}
+
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+}
+
+.hero {
+    padding: 25px 30px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #172554, #1e40af);
+    color: white;
+    margin-bottom: 25px;
+}
+
+.hero h1 {
+    font-size: 42px;
+    margin-bottom: 5px;
+}
+
+.hero p {
+    font-size: 17px;
+    opacity: 0.92;
+}
+
+.card {
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 15px;
+    border: 1px solid #d1d5db;
+    margin-bottom: 15px;
+    color: #111827 !important;
+}
+
+.success-box {
+    padding: 18px;
+    border-radius: 14px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46 !important;
+}
+
+.success-box h3 {
+    color: #065f46 !important;
+}
+
+.warning-box {
+    padding: 18px;
+    border-radius: 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e !important;
+}
+
+.warning-box h3 {
+    color: #92400e !important;
+}
+
+.danger-box {
+    padding: 18px;
+    border-radius: 14px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b !important;
+}
+
+.danger-box h3 {
+    color: #991b1b !important;
+}
+
+.small-text {
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.field-title {
+    font-size: 13px;
+    color: #4b5563 !important;
+    margin-bottom: 6px;
+}
+
+.field-value {
+    font-size: 17px;
+    font-weight: 600;
+    color: #111827 !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------- HEADER ----------------
+
+st.markdown("""
+<div class="hero">
+    <h1>🔎 NIRIKSHAN</h1>
+    <p>
+    Intelligent Packaged Commodity Compliance Screening
+    </p>
+    <p>
+    Scan → Extract → Validate → Explain → Report
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ---------------- SIDEBAR ----------------
+
+st.sidebar.title("NIRIKSHAN")
+
+st.sidebar.caption("SIH 2026 • Problem ID: SIH26034")
+
+mode = st.sidebar.radio(
+    "Select Mode",
+    [
+        "👤 Citizen Self-Check",
+        "🧑‍⚖️ Regulator / Officer Console"
+    ]
+)
+
+st.sidebar.divider()
+
+st.sidebar.subheader("Demo Data")
+
+demo = st.sidebar.selectbox(
+    "Choose a sample",
+    [
+        "No Demo — Upload Image",
+        "Sample 1 — Fully Compliant Pack",
+        "Sample 2 — Missing MRP & Origin",
+        "Sample 3 — Missing Unit Sale Price"
+    ]
+)
+
+st.sidebar.divider()
+
+st.sidebar.info(
+    "NIRIKSHAN provides a preliminary compliance assessment. "
+    "Final legal determination remains with the competent authority."
+)
+
+
+# ============================================================
+# DEMO DATA
+# ============================================================
+
+samples = {
+
+    "Sample 1 — Fully Compliant Pack": {
+        "Manufacturer / Packer": "ABC Foods Pvt. Ltd., Kolkata",
+        "Consumer Care": "1800-123-4567",
+        "Net Quantity": "500 g",
+        "Date": "08/2026",
+        "MRP": "₹120",
+        "Unit Sale Price": "₹240/kg",
+        "Country of Origin": "India"
+    },
+
+    "Sample 2 — Missing MRP & Origin": {
+        "Manufacturer / Packer": "XYZ Consumer Products Ltd.",
+        "Consumer Care": "1800-555-7890",
+        "Net Quantity": "1 kg",
+        "Date": "08/2026",
+        "MRP": "",
+        "Unit Sale Price": "₹150/kg",
+        "Country of Origin": ""
+    },
+
+    "Sample 3 — Missing Unit Sale Price": {
+        "Manufacturer / Packer": "Fresh Basket Foods Pvt. Ltd.",
+        "Consumer Care": "1800-444-1111",
+        "Net Quantity": "500 g",
+        "Date": "08/2026",
+        "MRP": "₹80",
+        "Unit Sale Price": "",
+        "Country of Origin": "India"
+    }
+}
+
+
+# ============================================================
+# OCR / FIELD EXTRACTION
+# ============================================================
+
+def extract_fields(text):
+
+    fields = {
+        "Manufacturer / Packer": "",
+        "Consumer Care": "",
+        "Net Quantity": "",
+        "Date": "",
+        "MRP": "",
+        "Unit Sale Price": "",
+        "Country of Origin": ""
+    }
+
+    # ========================================================
+    # CLEAN OCR TEXT
+    # ========================================================
+
+    lines = [
+        re.sub(r"\s+", " ", line).strip()
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+    full_text = " ".join(lines)
+
+        # ========================================================
+    # MANUFACTURER / PACKER / MARKETED BY
+    # ========================================================
+
+    manufacturer_patterns = [
+        r"manufactured\s*by",
+        r"manufactured/marketed\s*by",
+        r"mfg\.?\s*by",
+        r"mfd\.?\s*by",
+        r"marketed\s*by",
+        r"packed\s*by",
+        r"packer"
+    ]
+
+    company_patterns = [
+        r"pvt\.?\s*ltd",
+        r"private\s+limited",
+        r"\bltd\.?",
+        r"\blimited\b",
+        r"\binc\.?",
+        r"\bindustries\b",
+        r"\bcompany\b",
+        r"\bcorporation\b",
+        r"\benterprises?\b"
+    ]
+
+    for i, line in enumerate(lines):
+
+        for pattern in manufacturer_patterns:
+
+            if re.search(pattern, line, re.I):
+
+                # Combine the current line and the next
+                # few OCR lines because packaging text
+                # is often broken across lines.
+                nearby_text = " ".join(
+                    lines[i:i + 5]
+                )
+
+                # Remove the declaration label itself.
+                nearby_text = re.sub(
+                    pattern,
+                    "",
+                    nearby_text,
+                    count=1,
+                    flags=re.I
+                )
+
+                nearby_text = re.sub(
+                    r"^[\s:\-]+",
+                    "",
+                    nearby_text
+                )
+
+                # Try to find a company-like portion.
+                company_match = re.search(
+                    r"([A-Za-z][A-Za-z0-9&.,'()\- ]{5,}"
+                    r"(?:Pvt\.?\s*Ltd\.?|Private\s+Limited|"
+                    r"Limited|Ltd\.?|Inc\.?|Industries|"
+                    r"Corporation|Enterprises?))",
+                    nearby_text,
+                    re.I
+                )
+
+                if company_match:
+
+                    candidate = company_match.group(1).strip()
+
+                    # Remove obvious OCR junk from beginning.
+                    candidate = re.sub(
+                        r"^[^A-Za-z]+",
+                        "",
+                        candidate
+                    )
+
+                    if len(candidate) >= 8:
+                        fields["Manufacturer / Packer"] = (
+                            candidate
+                        )
+
+                break
+
+        if fields["Manufacturer / Packer"]:
+            break
+
+    # ========================================================
+    # BACKUP MANUFACTURER SEARCH
+    # ========================================================
+
+    if not fields["Manufacturer / Packer"]:
+
+        for i, line in enumerate(lines):
+
+            if any(
+                re.search(
+                    pattern,
+                    line,
+                    re.I
+                )
+                for pattern in company_patterns
+            ):
+
+                # Prefer lines close to "Marketed by",
+                # "Manufactured by", etc.
+                previous_text = " ".join(
+                    lines[max(0, i - 3):i + 1]
+                )
+
+                if any(
+                    re.search(
+                        pattern,
+                        previous_text,
+                        re.I
+                    )
+                    for pattern in manufacturer_patterns
+                ):
+
+                    fields["Manufacturer / Packer"] = line.strip()
+                    break
+       # ========================================================
+    # CONSUMER CARE / COMPLAINTS / HELPLINE
+    # ========================================================
+
+    consumer_patterns = [
+        r"consumer\s*care",
+        r"customer\s*care",
+        r"consumer\s*complaints?",
+        r"customer\s*complaints?",
+        r"complaints?",
+        r"helpline",
+        r"toll\s*free",
+        r"contact\s*us"
+    ]
+
+    consumer_section_found = False
+
+    for i, line in enumerate(lines):
+
+        if any(
+            re.search(
+                pattern,
+                line,
+                re.I
+            )
+            for pattern in consumer_patterns
+        ):
+
+            consumer_section_found = True
+
+            # Search several nearby OCR lines because
+            # phone numbers are frequently broken by OCR.
+            search_text = " ".join(
+                lines[i:i + 6]
+            )
+
+            # ------------------------------------------------
+            # NORMAL 10-DIGIT INDIAN PHONE NUMBER
+            # ------------------------------------------------
+
+            phone = re.search(
+                r"(?:\+91[\s\-]?)?[6-9]\d{9}",
+                search_text
+            )
+
+            if phone:
+
+                fields["Consumer Care"] = (
+                    phone.group(0)
+                )
+
+            else:
+
+                # ------------------------------------------------
+                # PHONE NUMBER WITH OCR SPACES
+                # ------------------------------------------------
+
+                spaced_phone = re.search(
+                    r"(?:\+91[\s\-]?)?"
+                    r"[6-9](?:[\s\-]?\d){9}",
+                    search_text
+                )
+
+                if spaced_phone:
+
+                    cleaned_phone = re.sub(
+                        r"\D",
+                        "",
+                        spaced_phone.group(0)
+                    )
+
+                    if len(cleaned_phone) == 10:
+
+                        fields["Consumer Care"] = (
+                            cleaned_phone
+                        )
+
+            break
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # If a complaints/contact section exists but the number
+    # cannot be read, do NOT invent a phone number.
+    # Keep the field empty so the UI can flag it for review.
+    # --------------------------------------------------------
+
+    if consumer_section_found:
+
+        if not fields["Consumer Care"]:
+
+            fields["Consumer Care"] = ""
+    # ========================================================
+    # NET QUANTITY / NET CONTENT
+    # ========================================================
+
+    quantity_pattern = (
+        r"([0-9]+(?:\.[0-9]+)?\s*"
+        r"(?:kg|kgs|g|gm|gms|mg|l|lt|ltr|"
+        r"ml|pcs|pc|pieces|piece))"
+    )
+
+    for i, line in enumerate(lines):
+
+        if re.search(
+            r"net\s*(?:quantity|qty|content|cont)",
+            line,
+            re.I
+        ):
+
+            search_text = " ".join(
+                lines[i:i + 3]
+            )
+
+            match = re.search(
+                quantity_pattern,
+                search_text,
+                re.I
+            )
+
+            if match:
+                fields["Net Quantity"] = (
+                    match.group(1).strip()
+                )
+
+            break
+
+    # Backup search for "250 ml", "500 g", etc.
+    if not fields["Net Quantity"]:
+
+        for line in lines:
+
+            match = re.search(
+                quantity_pattern,
+                line,
+                re.I
+            )
+
+            if match:
+
+                fields["Net Quantity"] = (
+                    match.group(1).strip()
+                )
+                break
+
+    # ========================================================
+    # MRP
+    # ========================================================
+
+    # First find every occurrence of MRP.
+    mrp_positions = list(
+        re.finditer(
+            r"\bmrp\b|maximum\s*retail\s*price",
+            full_text,
+            re.I
+        )
+    )
+
+    if mrp_positions:
+
+        # The last MRP is often the clearest declaration.
+        for mrp_match in reversed(mrp_positions):
+
+            start = mrp_match.start()
+
+            # Only inspect a short section after MRP.
+            section = full_text[
+                start:start + 120
+            ]
+
+            # Remove obvious batch/date areas if they occur.
+            section = re.split(
+                r"batch\s*(?:no\.?|number)|"
+                r"mfg\.?\s*date|"
+                r"exp\.?\s*date",
+                section,
+                flags=re.I
+            )[0]
+
+            # Look for a currency symbol followed by a number.
+            currency_match = re.search(
+                r"(?:₹|rs\.?|inr)\s*"
+                r"([0-9]{1,5}(?:\.[0-9]+)?)",
+                section,
+                re.I
+            )
+
+            if currency_match:
+
+                value = float(
+                    currency_match.group(1)
+                )
+
+                if 1 <= value <= 50000:
+                    fields["MRP"] = (
+                        "₹" + currency_match.group(1)
+                    )
+                    break
+
+            # OCR may convert ₹ into $, ', =, etc.
+            # Look for the LAST reasonable number near MRP.
+            numbers = re.findall(
+                r"\b([0-9]{1,5}(?:\.[0-9]+)?)\b",
+                section
+            )
+
+            if numbers:
+
+                for number in reversed(numbers):
+
+                    value = float(number)
+
+                    if 1 <= value <= 5000:
+
+                        fields["MRP"] = "₹" + number
+                        break
+
+            if fields["MRP"]:
+                break
+
+    # ========================================================
+    # UNIT SALE PRICE
+    # ========================================================
+
+    unit_patterns = [
+        r"unit\s*sale\s*price",
+        r"unit\s*price",
+        r"sale\s*price\s*per\s*unit",
+        r"price\s*per\s*unit",
+        r"₹\s*[0-9]+\s*/\s*(?:kg|g|l|ml|unit)"
+    ]
+
+    for i, line in enumerate(lines):
+
+        if any(
+            re.search(pattern, line, re.I)
+            for pattern in unit_patterns
+        ):
+
+            search_text = " ".join(
+                lines[i:i + 3]
+            )
+
+            match = re.search(
+                r"(?:₹|rs\.?|inr)?\s*"
+                r"([0-9]{1,6}(?:\.[0-9]+)?)"
+                r"\s*(?:/|per)?\s*"
+                r"(kg|g|l|ml|unit)?",
+                search_text,
+                re.I
+            )
+
+            if match:
+
+                value = match.group(1)
+                unit = match.group(2)
+
+                if unit:
+                    fields["Unit Sale Price"] = (
+                        "₹" + value + "/" + unit
+                    )
+                else:
+                    fields["Unit Sale Price"] = (
+                        "₹" + value
+                    )
+
+            break
+
+        # ========================================================
+    # MANUFACTURING / PACKING DATE
+    # ========================================================
+
+    date_labels = [
+        r"mfg\.?\s*date",
+        r"mfd\.?\s*date",
+        r"manufacturing\s*date",
+        r"manufactured\s*date",
+        r"mfg\.?",
+        r"mfd\.?",
+        r"pkg\.?\s*date",
+        r"packing\s*date",
+        r"packed\s*date"
+    ]
+
+    date_patterns = [
+        # DD/MM/YYYY or DD-MM-YYYY
+        r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b",
+
+        # MM/YYYY or MM-YYYY
+        r"\b\d{1,2}[\/\-]\d{2,4}\b",
+
+        # YYYY/MM or YYYY-MM
+        r"\b\d{4}[\/\-]\d{1,2}\b"
+    ]
+
+    for i, line in enumerate(lines):
+
+        if any(
+            re.search(
+                pattern,
+                line,
+                re.I
+            )
+            for pattern in date_labels
+        ):
+
+            nearby_text = " ".join(
+                lines[i:i + 4]
+            )
+
+            # Look for a normal date first.
+            for date_pattern in date_patterns:
+
+                match = re.search(
+                    date_pattern,
+                    nearby_text
+                )
+
+                if match:
+
+                    fields["Date"] = (
+                        match.group(0)
+                    )
+                    break
+
+            # If OCR separated the date into pieces,
+            # try patterns such as "4 04".
+            if not fields["Date"]:
+
+                separated_date = re.search(
+                    r"\b([0-9]{1,2})\s+([0-9]{2,4})\b",
+                    nearby_text
+                )
+
+                if separated_date:
+
+                    month_or_day = separated_date.group(1)
+                    year = separated_date.group(2)
+
+                    if (
+                        1 <= int(month_or_day) <= 12
+                        and len(year) in (2, 4)
+                    ):
+
+                        fields["Date"] = (
+                            month_or_day + "/" + year
+                        )
+
+            break
+
+    # ========================================================
+    # COUNTRY OF ORIGIN
+    # ========================================================
+
+    origin_patterns = [
+        r"country\s*of\s*origin",
+        r"made\s*in",
+        r"origin"
+    ]
+
+    for i, line in enumerate(lines):
+
+        match = re.search(
+            r"(?:country\s*of\s*origin|made\s*in|origin)"
+            r"\s*[:\-]?\s*(.*)",
+            line,
+            re.I
+        )
+
+        if match:
+
+            value = match.group(1).strip()
+
+            if value:
+                fields["Country of Origin"] = value
+
+            else:
+
+                if i + 1 < len(lines):
+                    fields["Country of Origin"] = (
+                        lines[i + 1]
+                    )
+
+            break
+
+    # ========================================================
+    # BACKUP: INDIA
+    # ========================================================
+
+    if not fields["Country of Origin"]:
+
+        for line in lines:
+
+            if re.search(
+                r"\bindia\b",
+                line,
+                re.I
+            ):
+
+                fields["Country of Origin"] = "India"
+                break
+
+    return fields
+# ============================================================
+# COMPLIANCE ENGINE
+# ============================================================
+
+def check_compliance(fields):
+
+    checks = []
+
+    checks.append({
+        "Requirement": "Manufacturer / Packer details",
+        "Detected": fields["Manufacturer / Packer"],
+        "Status": bool(fields["Manufacturer / Packer"]),
+        "Rule": "LMPC declaration requirement"
+    })
+
+    checks.append({
+        "Requirement": "Consumer care details",
+        "Detected": fields["Consumer Care"],
+        "Status": bool(fields["Consumer Care"]),
+        "Rule": "LMPC declaration requirement"
+    })
+
+    checks.append({
+        "Requirement": "Net quantity",
+        "Detected": fields["Net Quantity"],
+        "Status": bool(fields["Net Quantity"]),
+        "Rule": "LMPC quantity declaration requirement"
+    })
+
+    checks.append({
+        "Requirement": "Date declaration",
+        "Detected": fields["Date"],
+        "Status": bool(fields["Date"]),
+        "Rule": "LMPC date declaration requirement"
+    })
+
+    checks.append({
+        "Requirement": "MRP",
+        "Detected": fields["MRP"],
+        "Status": bool(fields["MRP"]),
+        "Rule": "MRP declaration requirement"
+    })
+
+    checks.append({
+        "Requirement": "Unit Sale Price",
+        "Detected": fields["Unit Sale Price"],
+        "Status": bool(fields["Unit Sale Price"]),
+        "Rule": "Applicable unit sale price requirement"
+    })
+
+    checks.append({
+        "Requirement": "Country of Origin",
+        "Detected": fields["Country of Origin"],
+        "Status": bool(fields["Country of Origin"]),
+        "Rule": "Country of origin declaration requirement"
+    })
+
+    return checks
+
+
+# ============================================================
+# SCORE
+# ============================================================
+
+def calculate_score(checks):
+
+    total = len(checks)
+    passed = sum(1 for item in checks if item["Status"])
+
+    score = round((passed / total) * 100)
+
+    if score >= 90:
+        risk = "LOW"
+    elif score >= 70:
+        risk = "MEDIUM"
+    else:
+        risk = "HIGH"
+
+    return score, risk
+
+
+# ============================================================
+# REPORT ID
+# ============================================================
+
+def generate_report_id():
+
+    today = datetime.now().strftime("%Y%m%d")
+
+    number = random.randint(1000, 9999)
+
+    return f"NIR-{today}-{number}"
+
+
+# ============================================================
+# INPUT SECTION
+# ============================================================
+
+st.subheader("1️⃣ Product Input")
+
+uploaded_file = st.file_uploader(
+    "Upload a clear photograph of the packaged commodity label",
+    type=["jpg", "jpeg", "png"]
+)
+
+
+# ============================================================
+# PROCESS IMAGE / DEMO
+# ============================================================
+
+image = None
+ocr_text = ""
+fields = {}
+
+
+# -------- DEMO --------
+
+if demo != "No Demo — Upload Image":
+
+    st.info("Demo mode selected. This allows you to demonstrate the system even without a product photograph.")
+
+    fields = samples[demo]
+
+    demo_text = "\n".join(
+        value for value in fields.values()
+        if value
+    )
+
+    ocr_text = demo_text
+
+    st.success("Demo product loaded successfully.")
+
+
+# -------- REAL IMAGE --------
+
+elif uploaded_file is not None:
+
+    image = Image.open(uploaded_file)
+
+    st.image(
+        image,
+        caption="Uploaded Product Label",
+        width=450
+    )
+
+with st.spinner("Processing label..."):
+
+    try:
+
+        import pytesseract
+        from PIL import ImageEnhance, ImageFilter, ImageOps
+
+        pytesseract.pytesseract.tesseract_cmd = (
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        )
+
+        # ====================================================
+        # OCR PREPROCESSING
+        # ====================================================
+
+        # Convert image to grayscale
+        gray = image.convert("L")
+
+        # Increase size for better character recognition
+        gray = gray.resize(
+            (
+                gray.width * 3,
+                gray.height * 3
+            )
+        )
+
+        # ----------------------------------------------------
+        # VERSION 1: Enhanced grayscale
+        # ----------------------------------------------------
+
+        enhanced = ImageEnhance.Contrast(
+            gray
+        ).enhance(2.0)
+
+        enhanced = ImageEnhance.Sharpness(
+            enhanced
+        ).enhance(2.0)
+
+        # ----------------------------------------------------
+        # VERSION 2: Black and white threshold
+        # ----------------------------------------------------
+
+        threshold = enhanced.point(
+            lambda pixel: 255 if pixel > 160 else 0
+        )
+
+        # ====================================================
+        # RUN OCR ON BOTH VERSIONS
+        # ====================================================
+
+        ocr_results = []
+
+        text_1 = pytesseract.image_to_string(
+            enhanced,
+            config="--psm 6"
+        )
+
+        if text_1.strip():
+            ocr_results.append(text_1)
+
+        text_2 = pytesseract.image_to_string(
+            threshold,
+            config="--psm 6"
+        )
+
+        if text_2.strip():
+            ocr_results.append(text_2)
+
+        # ====================================================
+        # COMBINE OCR RESULTS
+        # ====================================================
+
+        ocr_text = "\n".join(
+            ocr_results
+        )
+
+    except Exception as e:
+
+        ocr_text = ""
+
+    # ========================================================
+    # FIELD EXTRACTION
+    # ========================================================
+
+    fields = extract_fields(
+        ocr_text
+    )
+
+    # ========================================================
+    # OCR RESULT DISPLAY
+    # ========================================================
+
+    if ocr_text.strip():
+
+        st.success(
+            "OCR completed successfully."
+        )
+
+        with st.expander(
+            "🔍 View Raw OCR Text"
+        ):
+
+            st.text(
+                ocr_text
+            )
+
+    else:
+
+        st.warning(
+            "The image could not be read automatically. "
+            "You can still use the demo samples to "
+            "demonstrate the system."
+        )
+
+# ============================================================
+# DEMO FIELDS
+# ============================================================
+
+if fields:
+
+    st.divider()
+
+    st.subheader("2️⃣ Detected Declarations")
+
+    col1, col2, col3 = st.columns(3)
+
+    display_items = list(fields.items())
+
+    for i, (name, value) in enumerate(display_items):
+
+        col = [col1, col2, col3][i % 3]
+
+        with col:
+
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="field-title">{name}</div>
+                    <div class="field-value">
+                    {value if value else "⚠️ Not detected"}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("3️⃣ Rule-by-Rule Validation")
+
+    checks = check_compliance(fields)
+
+    score, risk = calculate_score(checks)
+
+    # TOP METRICS
+
+    passed = sum(item["Status"] for item in checks)
+    failed = len(checks) - passed
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    m1.metric("Compliance Score", f"{score}%")
+    m2.metric("Checks Passed", passed)
+    m3.metric("Issues Found", failed)
+    m4.metric("Risk Level", risk)
+
+
+    # TABLE
+
+    table_data = []
+
+    for item in checks:
+
+        table_data.append({
+            "Requirement": item["Requirement"],
+            "Detected Value": item["Detected"] if item["Detected"] else "Not detected",
+            "Result": "✅ PASS" if item["Status"] else "❌ FLAG",
+            "Reference": item["Rule"]
+        })
+
+    df = pd.DataFrame(table_data)
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # ========================================================
+    # EXPLAINABILITY
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("4️⃣ Explainable Compliance Result")
+
+    st.caption(
+        "NIRIKSHAN does not only give a score — it explains why a declaration was passed or flagged."
+    )
+
+    for item in checks:
+
+        if item["Status"]:
+
+            st.markdown(
+                f"""
+                <div class="success-box">
+                <b>✅ {item["Requirement"]}</b><br>
+                Detected: {item["Detected"]}<br>
+                Checked against: {item["Rule"]}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        else:
+
+            st.markdown(
+                f"""
+                <div class="danger-box">
+                <b>❌ {item["Requirement"]}</b><br>
+                Declaration was not detected.<br>
+                Checked against: {item["Rule"]}<br>
+                <b>Recommendation:</b> Verify the physical package and applicable legal requirement.
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.write("")
+
+
+    # ========================================================
+    # FINAL RESULT
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("5️⃣ Preliminary Assessment")
+
+    if score >= 90:
+
+        st.markdown(
+            """
+            <div class="success-box">
+            <h3>🟢 LOW RISK</h3>
+            The scanned label contains the major declarations checked by this prototype.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    elif score >= 70:
+
+        st.markdown(
+            """
+            <div class="warning-box">
+            <h3>🟡 MEDIUM RISK</h3>
+            Some declarations require verification or appear to be missing.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    else:
+
+        st.markdown(
+            """
+            <div class="danger-box">
+            <h3>🔴 HIGH RISK</h3>
+            Multiple declarations were not detected. Manual verification is recommended.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+    # ========================================================
+    # REPORT
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("6️⃣ Inspection Evidence Report")
+
+    report_id = generate_report_id()
+
+    report_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
+    report_lines = []
+
+    report_lines.append("NIRIKSHAN")
+    report_lines.append("Smart Packaged Commodity Compliance Screening System")
+    report_lines.append("=" * 55)
+    report_lines.append("")
+    report_lines.append(f"Report ID: {report_id}")
+    report_lines.append(f"Date & Time: {report_time}")
+    report_lines.append(f"Mode: {mode}")
+    report_lines.append("")
+    report_lines.append("PRELIMINARY COMPLIANCE ASSESSMENT")
+    report_lines.append("-" * 55)
+    report_lines.append(f"Compliance Score: {score}%")
+    report_lines.append(f"Risk Level: {risk}")
+    report_lines.append("")
+    report_lines.append("DETECTED DECLARATIONS")
+    report_lines.append("-" * 55)
+
+    for key, value in fields.items():
+
+        report_lines.append(
+            f"{key}: {value if value else 'Not detected'}"
+        )
+
+    report_lines.append("")
+    report_lines.append("VALIDATION RESULTS")
+    report_lines.append("-" * 55)
+
+    for item in checks:
+
+        status = "PASS" if item["Status"] else "FLAG"
+
+        report_lines.append(
+            f"{status} | {item['Requirement']} | "
+            f"{item['Detected'] if item['Detected'] else 'Not detected'}"
+        )
+
+    report_lines.append("")
+    report_lines.append(
+        "DISCLAIMER: This report is a preliminary screening output "
+        "for demonstration/prototype purposes. It is not a legal certificate "
+        "or final enforcement determination."
+    )
+
+    report_text = "\n".join(report_lines)
+
+    st.code(report_text)
+
+    st.download_button(
+        label="📄 Download Inspection Report",
+        data=report_text,
+        file_name=f"{report_id}.txt",
+        mime="text/plain"
+    )
+
+
+# ============================================================
+# HOW IT WORKS
+# ============================================================
+
+st.divider()
+
+st.subheader("💡 How NIRIKSHAN Works")
+
+c1, c2, c3, c4, c5 = st.columns(5)
+
+c1.markdown("### 📷\nSCAN\nUpload label")
+c2.markdown("### 🔤\nEXTRACT\nRead declarations")
+c3.markdown("### ⚖️\nVALIDATE\nCheck requirements")
+c4.markdown("### 🧠\nEXPLAIN\nShow reason")
+c5.markdown("### 📄\nREPORT\nGenerate evidence")
+
+
+# ============================================================
+# REGULATOR FEATURES
+# ============================================================
+
+if mode == "🧑‍⚖️ Regulator / Officer Console":
+
+    st.divider()
+
+    st.subheader("🧑‍⚖️ Regulator Dashboard")
+
+    st.info(
+        "The regulator view is designed for quick screening, "
+        "prioritisation and evidence generation."
+    )
+
+    a, b, c = st.columns(3)
+
+    a.metric("Products Screened", "128")
+    b.metric("Flagged for Review", "23")
+    c.metric("High-Risk Cases", "7")
+
+    st.subheader("Priority Queue")
+
+    priority_data = pd.DataFrame({
+        "Case ID": [
+            "NIR-001",
+            "NIR-002",
+            "NIR-003",
+            "NIR-004"
+        ],
+        "Product": [
+            "Packaged Food",
+            "Cosmetic Product",
+            "Household Cleaner",
+            "Edible Oil"
+        ],
+        "Risk": [
+            "HIGH",
+            "MEDIUM",
+            "HIGH",
+            "MEDIUM"
+        ],
+        "Action": [
+            "Manual Review",
+            "Verify Label",
+            "Manual Review",
+            "Verify Label"
+        ]
+    })
+
+    st.dataframe(
+        priority_data,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "NIRIKSHAN • SIH 2026 • Problem ID SIH26034"
+)
+
+st.caption(
+    "Prototype for preliminary packaged commodity compliance screening."
+)
