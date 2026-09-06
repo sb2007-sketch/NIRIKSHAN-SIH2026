@@ -3,3 +3,4 @@ pillow
 pandas
 fpdf2
 pytesseract
+rapidfuzz
